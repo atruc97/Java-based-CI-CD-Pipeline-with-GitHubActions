@@ -1,7 +1,12 @@
 name: javacicd Actions
-on: workflow_dispatch
+on: [push, workflow_dispatch]
 env:
   AWS_REGION: us-east-1
+  ECR_REPOSITORY: actapp
+  ECS_SERVICE: java-app-svc
+  ECS_CLUSTER: javaapp
+  ECS_TASK_DEFINITION: aws-files/taskdeffile.json
+  CONTAINER_NAME: java-app
 jobs:
   Testing:
     runs-on: ubuntu-latest
@@ -73,6 +78,35 @@ jobs:
           daemon_off: false
           dockerfile: ./Dockerfile
           context: ./
-          
+
+
+  Deploy:
+    needs: BUILD_AND_PUBLISH
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v4        
     
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+  
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ secrets.REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.run_number }}
+  
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}  
+          wait-for-service-stability: true
       
